@@ -108,3 +108,8 @@ const EMOJI: Record<CellState, string> = { hit: '🟩', partial: '🟨', miss: '
 export function rowEmoji(cells: Cell[]): string {
   return cells.map((c) => EMOJI[c.state]).join('');
 }
+
+// Human labels for a set of column keys, returned in COLUMNS order.
+export function columnLabels(keys: string[]): string[] {
+  return COLUMNS.filter((c) => keys.includes(String(c.key))).map((c) => c.label);
+}
