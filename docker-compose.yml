@@ -1,33 +1,32 @@
 services:
-  # Answer service — internal only (not published). The web container proxies
-  # /api/* to it. It generates and persists its own answer secret in the volume
-  # below, so there is nothing to configure. To pin the secret yourself instead,
-  # uncomment DAILY_SECRET.
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
+  # The image runs as the unprivileged `node` user (uid 1000), but the files in
+  # an existing volume were written by root when the API ran as root. This hands
+  # them over before the site starts, or it could not read the answer secret.
+  # Same job as the init container in FAF's cluster chart. Runs once and exits.
+  data-owner:
+    image: busybox:1.37
+    command: ["sh", "-c", "chown -R 1000:1000 /data"]
+    restart: "no"
+    volumes:
+      - daily-secret:/data
+
+  # The site and the answer API in one container. The service keeps the name
+  # `web` and host port 8081, so the edge reverse proxy needs no changes.
+  # On first run it generates a random answer secret and keeps it in the volume
+  # below. To pin it yourself instead, uncomment DAILY_SECRET.
+  web:
+    build: .
     restart: unless-stopped
+    depends_on:
+      data-owner:
+        condition: service_completed_successfully
     environment:
       - PORT=8090
       # - DAILY_SECRET=change-me-to-a-long-random-string
     volumes:
       - daily-secret:/data
-    expose:
-      - "8090"
-
-  # Static SPA (nginx) that also reverse-proxies /api to the answer service.
-  # Published on host 8081 exactly as before, so your edge reverse proxy
-  # (e.g. unitdle.doodlepros.com -> VM-IP:8081) needs no changes.
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - api
     ports:
-      - "8081:80"
+      - "8081:8090"
 
 volumes:
   daily-secret:

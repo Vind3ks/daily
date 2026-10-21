@@ -1,0 +1,51 @@
+# Every push to main builds the image FAF's cluster runs and publishes it to
+# Docker Hub as `faforever/faf-daily:latest`, where FAF keeps all its images.
+# The cluster picks up a new `latest` on its own within a couple of minutes, so
+# pushing to main is the whole release. Same setup as FAForever/faf-tournaments.
+#
+# Each image is also tagged with its commit, so a bad release is undone by
+# pointing `latest` back at the previous commit's image.
+name: Image
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Blocks the release: a type error or a failed build would not deploy.
+      - run: npm run typecheck:server
+      - run: npm run build
+      - run: npm run build:server
+
+  image:
+    needs: check
+    # DOCKER_USERNAME and DOCKER_PASSWORD are the FAForever organization's
+    # Docker Hub credentials, so this only runs once the repo lives there.
+    # Before that it is skipped instead of failing every push.
+    if: github.event_name == 'push' && github.repository_owner == 'FAForever'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and publish
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          image="faforever/faf-daily"
+          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          docker build -t "$image:latest" -t "$image:${GITHUB_SHA::12}" .
+          docker push "$image:${GITHUB_SHA::12}"
+          docker push "$image:latest"
